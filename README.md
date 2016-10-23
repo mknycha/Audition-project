@@ -10,7 +10,6 @@ The following files are included in this repository:
 - pearsonProjectFinal.Rmd - markdown file with code used for analysis prepared in a more readable version, clear comments and conclusions
 - pearsonProjectFinal.html - the same as above but compiled into a html file
 
-Data dictionary
 The dataset comes from a Pearson e-learning platform, an online workbook that is
 used alongside a paper textbook. Students complete activities, either assigned by the
 teacher or chosen by themselves.
