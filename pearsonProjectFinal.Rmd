@@ -1,0 +1,151 @@
+##Efficacy analytics audition project
+Purpose of this project is to explore the related dataset, and prepare a
+presentation of any findings and/or actionable insights.
+
+List of assumptions I took during the analysis:
+
+* The missing values are missing at random, that is - value of the variable or any other variable is not related to the fact if the value is input properly or not
+
+* When analyzing mean of average score for different countries, I excluded the countries for which number of student is lower than or equal to 50. That is because it may not be right to compare average for 5 students in one group with average of 1000 students in the other.
+
+* The same student can have two units assigned at the same time (learning two chapters at once), but cannot have two different country codes assigned 
+
+The whole process can be divided into sections:  
+1. Uploading data and data quality check  
+2. Assessing colinearity  
+3. Trying to fit linear model to data  
+4. Calculating mean of student scores for different countries  
+5. Analysis of mean for groups of students, grouped by country and variable in_course
+
+Conclusions will be presented in the end of this file.
+
+1. Uploading data and data quality checks
+```{r eval=TRUE}
+EAdata <- read.csv("D:/Nauka/R/Pearson zadanie/Audition project/EA_audition_for_sharing/data.csv")
+```
+Quick look at the data summary and variables classes
+```{r eval=TRUE}
+summary(EAdata)
+nrow(EAdata)
+```
+```{r eval=TRUE}
+for (x in 1:length(EAdata)) {
+  print( class(EAdata[,x])  )
+}
+```
+I performed two simple checks, to know if:
+
++ There are any duplicated rows in the data
+
++ There are any rows where learner with particular id has more than one country assigned
+```{r eval=TRUE}
+dup<-duplicated(EAdata)
+summary(dup)
+
+ids<-unique(EAdata[,1]) 
+for (x in ids) {
+  tmp<-unique(EAdata[EAdata$learner_id==x,2])
+  if (length(tmp)!=1) {
+    print(EAdata[EAdata$learner_id==x,])
+  }
+}
+```
+Both checks did not show any issues. The dataset summary also did not depict any issues, so we can move on with the analysis.
+  
+2. Checking correlations for different variables
+```{r}
+EAdata.3.5<-na.omit(EAdata[,c(3,5)])
+cor(as.numeric(EAdata.3.5[,1]),EAdata.3.5[,2])
+
+EAdata.5.7<-na.omit(EAdata[,c(5,7)])
+cor(as.numeric(EAdata.5.7[,1]),EAdata.5.7[,2])
+
+EAdata.4.5<-na.omit(EAdata[,c(4,5)])
+cor(as.numeric(EAdata.4.5[,1]),EAdata.4.5[,2])
+```
+Looks like there is no statisticaly relevant colinearity between avg_score and the variables - inv_rate,unit & in_course
+
+  3. Trying to fit linear model to data
+```{r results='hide'}
+model1 <- lm(formula = avg_score ~ as.numeric(in_course) + inv_rate + as.numeric(country), 
+            data = EAdata)
+modelStep <- step(lm(formula = avg_score ~ ., data = EAdata[,-1]))
+model2 <- lm(formula = avg_score ~ in_course,  data = EAdata)
+```
+```{r echo=FALSE}
+summary(model2)
+```
+None of the models looked useful. Although t-test showed some variables as relevant, there was R^2 statistics showed very weak fit
+
+  4. Calculating mean of student scores for different countries
+```{r results='hide', message=FALSE, warning=FALSE}
+##Calculating mean for of avg_score for each country
+library(dplyr)
+meanScores<- EAdata %>%
+  group_by(country) %>%
+  summarise_each(funs(mean(., na.rm=TRUE)), avg_score)
+##Let's add to this data frame column with number of student
+studentsCountries <- as.data.frame( table(EAdata$country) )
+meanScores <- cbind(meanScores, studentsNumber=studentsCountries$Freq)
+
+##Table of mean scores in each country (only those with more than 50 students)
+df_meanScores <- as.data.frame(meanScores[meanScores$studentsNumber>50,])
+df_meanScores = df_meanScores[ order(df_meanScores$avg_score), ]
+```
+It turns out, that after filtering out countries number of students higher than 50, we get only `r length(df_meanScores$country)` countries. Without filtering, it was `r length(meanScores$country)`.
+
+Once we have the table of mean scores in filtered countries, we can have a look at it's top and bottom
+```{r}
+head(df_meanScores)
+tail(df_meanScores)
+```
+We may conclude, that in this ranking students from Ukraine showed the best average score, and students from Great Britian the worst average score
+
+Presenting the top five countries on a bar plot:
+```{r warning=FALSE}
+selCountries1000 <- meanScores[meanScores$studentsNumber>1000,1]
+EAdataFiltered <- EAdata[EAdata$country == selCountries1000,]
+plt<-barplot(table(EAdataFiltered$in_course,as.character( EAdataFiltered$country) ),beside = TRUE, col=c("red","yellow"))
+legend("topleft", c("studying alone","studying in course"), lwd=10, col=c("red","yellow"))
+tab<-table(EAdataFiltered$in_course,as.character( EAdataFiltered$country) )
+```
+There are only five countries with number of students higher than 1000.
+Five countries with the highest number of students (total) are presented on the plot.
+
+  5. Analysis of mean for groups of students, grouped by country and variable in_course
+```{r}  
+testMean <- aov(avg_score~country, data = EAdataFiltered)
+summary(testMean)
+TukeyHSD(testMean) #Comparing mean score for each of 5 countries with highest number of students.
+
+```
+All the tested pairs of countries has significantly different mean score from each other, except of IT-ES (for 95% confidence level).
+It is safe to conclude that average scores are different between countries.
+Are these different for students studying alone and studying with teacher?
+```{r warning=FALSE}
+selCountries50 <- meanScores[meanScores$studentsNumber>50,1]
+EAdataFilteredSmall <- EAdata[EAdata$country == selCountries50,]
+testMean <- aov(avg_score~in_course, data = EAdataFilteredSmall)
+summary(testMean)
+summary(EAdataFilteredSmall[EAdataFilteredSmall$in_course=="t",5])
+summary(EAdataFilteredSmall[EAdataFilteredSmall$in_course=="f",5])
+```
+Again, Anova results show that the difference between groups studying alone and studying in course is statistically significant (for 95% confidence level).
+
+If we calculate mean of average scores for all the students, how many students will have a higher avg_score than than the mean for all students?
+(I am not filtering student numbers here, because I will be not grouping by countries this time)
+```{r}
+totalMean<-mean(EAdata$avg_score, na.rm = TRUE)
+compMeanData<-EAdata[EAdata$avg_score>totalMean,]
+print(totalMean)
+median(EAdata$avg_score, na.rm = TRUE)
+```
+Out of `r length(unique( EAdata$learner_id ))` there were `r length(unique( compMeanData$learner_id ))` students with the average score higher than the mean for all students. Besides, median of avg_score is higher than mean of avg_score, so we can expect the distribution to be negatively skewed.
+
+### Conclusions:
+
+* **Avg_score is not dependent on any of these variables - inv_rate,unit & in_course showed. This is consistent with the results of fitting any linear model. **Probably there are other important factors telling if the student will have a high score or not.
+* **There were students out of 87 countries in total, but there are 57 countries in the data where number of students is less than or equal to 50 students.** Maybe these countries should be checked in terms of profitability?
+* Looking at the countries with more than 50 students provided - **there is a significant difference between the average score for each whole country. The country with the lowest average score turned out to be Great Britian, the highest - Ukraine.** It would be worth considering preparing more profiled courses for countries with the lowest scores.
+* **Average score for group of students learning with teacher turned out to be significantly higher than the average score for group of students learning on their own.** If students are to receive higher scores, more profiled elearning courses should be considered.
+* The distribution of avg_score values is negatively skewed, which means that there are more students receiving high scores than those receiving lower scores. **About `r round(length(unique( compMeanData$learner_id ))/length(unique( EAdata$learner_id )) ,2)` % of students had the average score higher than the mean for all students.**
